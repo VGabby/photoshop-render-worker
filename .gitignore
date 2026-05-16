@@ -1,0 +1,18 @@
+node_modules/
+dist/
+.playwright-mcp/
+tiny-sprout-*.png
+.DS_Store
+.venv/
+__pycache__/
+*.py[cod]
+.env
+photoshop_render_server/data/
+photoshop_render_server/*.jpg
+photoshop_render_server/*.jpeg
+
+# Unrelated local Vite app that existed before this Photoshop worker project.
+/index.html
+/package.json
+/package-lock.json
+/src/

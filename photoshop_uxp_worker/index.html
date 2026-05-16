@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="src/styles.css" />
+  </head>
+  <body>
+    <div id="appRoot">
+      <div class="panelHeader">
+        <h1>Render Worker</h1>
+        <span id="statusBadge">Disconnected</span>
+      </div>
+
+      <div class="field">
+        <label for="workerId">Worker ID</label>
+        <input id="workerId" type="text" />
+      </div>
+
+      <div class="field">
+        <label for="serverUrl">Server WebSocket</label>
+        <input id="serverUrl" type="text" value="ws://127.0.0.1:8000/workers/ws" />
+      </div>
+
+      <div class="actions">
+        <button id="connectButton" type="button">Connect</button>
+        <button id="disconnectButton" type="button" disabled>Disconnect</button>
+      </div>
+
+      <section class="panelSection">
+        <h2>Current Job</h2>
+        <pre id="jobView">None</pre>
+      </section>
+
+      <section class="panelSection">
+        <h2>Log</h2>
+        <pre id="logView"></pre>
+      </section>
+    </div>
+    <script src="src/main.js"></script>
+  </body>
+</html>
