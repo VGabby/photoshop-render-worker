@@ -2,7 +2,7 @@
 
 FastAPI orchestrator for Photoshop workers connected over WebSocket.
 
-The server stores only job metadata. Images live in a public bucket or any URL-addressable storage. Workers receive an `input_url`, render through Photoshop, then upload to `output_upload_url`.
+The server stores job and worker metadata in SQLite. Images live in a public bucket or any URL-addressable storage. Workers receive an `input_url`, render through Photoshop, then upload to `output_upload_url`.
 
 ## Run
 
@@ -22,9 +22,14 @@ OUTPUT_PUBLIC_BASE_URL=https://bucket.example.com/processed
 OUTPUT_UPLOAD_BASE_URL=https://bucket.example.com/processed
 DEFAULT_JPEG_QUALITY=12
 JOB_TIMEOUT_SECONDS=600
+WORKER_HEARTBEAT_INTERVAL_SECONDS=20
+WORKER_STALE_AFTER_SECONDS=60
+LIVENESS_SCAN_SECONDS=10
 ```
 
 For MVP, `OUTPUT_PUBLIC_BASE_URL` and `OUTPUT_UPLOAD_BASE_URL` can be the same public-write bucket URL. Later, keep `output_url` public-readable and make `output_upload_url` a signed upload URL.
+
+Runtime data is stored under `photoshop_render_server/data/`, including the SQLite database and local upload test files. This folder is intentionally ignored by git.
 
 ## API
 
@@ -56,3 +61,5 @@ Worker WebSocket:
 ```text
 ws://127.0.0.1:8000/workers/ws
 ```
+
+For deployed workers, use `wss://` and configure the reverse proxy or load balancer idle timeout above the worker stale timeout, preferably greater than `75s`.

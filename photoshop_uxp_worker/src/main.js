@@ -1,12 +1,27 @@
+const reconnectConfig = {
+  initialDelayMs: 1000,
+  multiplier: 2,
+  maxDelayMs: 30000,
+  jitterRatio: 0.3
+};
+
 const state = {
   socket: null,
   busy: false,
   workerId: "",
+  serverUrl: "",
+  sessionId: null,
   currentJob: null,
   photoshopApp: null,
   photoshopCore: null,
   localFileSystem: null,
-  storageFormats: null
+  storageFormats: null,
+  autoReconnect: false,
+  manualDisconnect: false,
+  reconnectAttempt: 0,
+  reconnectTimer: null,
+  heartbeatTimer: null,
+  heartbeatIntervalMs: 20000
 };
 
 init();
@@ -18,9 +33,11 @@ function init() {
   getEl("workerId").value = savedWorkerId;
   getEl("serverUrl").value = savedServerUrl;
   state.workerId = savedWorkerId;
+  state.serverUrl = savedServerUrl;
 
-  getEl("connectButton").addEventListener("click", connect);
+  getEl("connectButton").addEventListener("click", () => connect({ manual: true }));
   getEl("disconnectButton").addEventListener("click", disconnect);
+  setConnectionState("Disconnected");
   log("Worker panel ready.");
 
   try {
@@ -44,17 +61,20 @@ function defaultWorkerId() {
   return `photoshop-worker-${Math.random().toString(16).slice(2, 10)}`;
 }
 
-function setConnected(isConnected) {
+function setConnectionState(label) {
   const badge = getEl("statusBadge");
-  badge.textContent = isConnected ? "Connected" : "Disconnected";
-  badge.classList.toggle("connected", isConnected);
-  getEl("connectButton").disabled = isConnected;
-  getEl("disconnectButton").disabled = !isConnected;
+  badge.textContent = label;
+  badge.classList.toggle("connected", label === "Connected" || label === "Busy");
+  getEl("connectButton").disabled = label === "Connecting" || label === "Connected" || label === "Busy";
+  getEl("disconnectButton").disabled = label === "Disconnected";
 }
 
 function setCurrentJob(job) {
   state.currentJob = job;
   getEl("jobView").textContent = job ? JSON.stringify(job, null, 2) : "None";
+  if (state.socket && state.socket.readyState === WebSocket.OPEN) {
+    setConnectionState(job ? "Busy" : "Connected");
+  }
 }
 
 function log(message) {
@@ -70,19 +90,47 @@ function send(message) {
   state.socket.send(JSON.stringify(message));
 }
 
-function connect() {
+function trySend(message) {
+  try {
+    send(message);
+    return true;
+  } catch (error) {
+    log(`Send skipped: ${error.message || error}`);
+    return false;
+  }
+}
+
+function connect({ manual = false } = {}) {
+  if (state.socket && state.socket.readyState === WebSocket.OPEN) {
+    return;
+  }
+
+  if (manual) {
+    state.manualDisconnect = false;
+    state.autoReconnect = true;
+    state.reconnectAttempt = 0;
+  }
+
+  cancelReconnect();
+  stopHeartbeat();
+
   const workerId = getEl("workerId").value.trim() || defaultWorkerId();
   const serverUrl = getEl("serverUrl").value.trim();
 
   localStorage.setItem("workerId", workerId);
   localStorage.setItem("serverUrl", serverUrl);
   state.workerId = workerId;
+  state.serverUrl = serverUrl;
+
+  setConnectionState(manual ? "Connecting" : "Reconnecting");
+  log(`Connecting to ${serverUrl}`);
 
   const socket = new WebSocket(serverUrl);
   state.socket = socket;
 
   socket.onopen = () => {
-    setConnected(true);
+    state.reconnectAttempt = 0;
+    setConnectionState("Connected");
     send({
       type: "worker.hello",
       worker_id: workerId,
@@ -95,7 +143,14 @@ function connect() {
   socket.onmessage = async (event) => {
     const message = JSON.parse(event.data);
     if (message.type === "worker.ready") {
+      state.sessionId = message.session_id || null;
+      state.heartbeatIntervalMs = Math.max(5000, Number(message.heartbeat_interval_seconds || 20) * 1000);
+      startHeartbeat();
       log(`Registered as ${message.worker_id}`);
+      return;
+    }
+
+    if (message.type === "worker.heartbeat_ack") {
       return;
     }
 
@@ -111,24 +166,98 @@ function connect() {
     log("WebSocket error.");
   };
 
-  socket.onclose = () => {
+  socket.onclose = (event) => {
+    const wasManual = state.manualDisconnect;
     state.socket = null;
-    state.busy = false;
-    setConnected(false);
-    setCurrentJob(null);
-    log("Disconnected.");
+    state.sessionId = null;
+    stopHeartbeat();
+    if (!state.busy) {
+      setCurrentJob(null);
+    }
+
+    log(`Disconnected${event.reason ? `: ${event.reason}` : "."}`);
+    if (wasManual || !state.autoReconnect) {
+      state.busy = false;
+      setConnectionState("Disconnected");
+      return;
+    }
+
+    setConnectionState("Reconnecting");
+    scheduleReconnect();
   };
 }
 
 function disconnect() {
+  state.manualDisconnect = true;
+  state.autoReconnect = false;
+  cancelReconnect();
+  stopHeartbeat();
   if (state.socket) {
-    state.socket.close();
+    state.socket.close(1000, "Manual disconnect");
+  }
+  state.socket = null;
+  state.sessionId = null;
+  state.busy = false;
+  setCurrentJob(null);
+  setConnectionState("Disconnected");
+  log("Manual disconnect.");
+}
+
+function scheduleReconnect() {
+  cancelReconnect();
+  state.reconnectAttempt += 1;
+  const exponentialDelay = reconnectConfig.initialDelayMs * reconnectConfig.multiplier ** (state.reconnectAttempt - 1);
+  const cappedDelay = Math.min(exponentialDelay, reconnectConfig.maxDelayMs);
+  const jitter = Math.random() * cappedDelay * reconnectConfig.jitterRatio;
+  const delay = Math.round(cappedDelay + jitter);
+
+  log(`Reconnect attempt ${state.reconnectAttempt} in ${Math.round(delay / 1000)}s.`);
+  state.reconnectTimer = setTimeout(() => {
+    state.reconnectTimer = null;
+    connect({ manual: false });
+  }, delay);
+}
+
+function cancelReconnect() {
+  if (state.reconnectTimer) {
+    clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
+  }
+}
+
+function startHeartbeat() {
+  stopHeartbeat();
+  sendHeartbeat();
+  state.heartbeatTimer = setInterval(sendHeartbeat, state.heartbeatIntervalMs);
+}
+
+function stopHeartbeat() {
+  if (state.heartbeatTimer) {
+    clearInterval(state.heartbeatTimer);
+    state.heartbeatTimer = null;
+  }
+}
+
+function sendHeartbeat() {
+  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
+    return;
+  }
+
+  try {
+    send({
+      type: "worker.heartbeat",
+      worker_id: state.workerId,
+      current_job_id: state.currentJob ? state.currentJob.job_id : null,
+      busy: state.busy
+    });
+  } catch (error) {
+    log(`Heartbeat failed: ${error.message || error}`);
   }
 }
 
 async function handleRenderRequest(job) {
   if (state.busy) {
-    send({
+    trySend({
       type: "job.failed",
       job_id: job.job_id,
       error: "Worker received a job while busy"
@@ -141,7 +270,7 @@ async function handleRenderRequest(job) {
 
   try {
     await renderJob(job);
-    send({
+    trySend({
       type: "job.completed",
       job_id: job.job_id,
       output_url: job.output_url
@@ -149,7 +278,7 @@ async function handleRenderRequest(job) {
     log(`Completed ${job.job_id}`);
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
-    send({
+    trySend({
       type: "job.failed",
       job_id: job.job_id,
       error: message
@@ -188,7 +317,7 @@ async function renderJob(job) {
 }
 
 function sendStatus(jobId, status) {
-  send({
+  trySend({
     type: "job.status",
     job_id: jobId,
     status

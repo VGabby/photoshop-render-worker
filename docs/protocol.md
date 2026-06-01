@@ -18,9 +18,35 @@ Server response:
 ```json
 {
   "type": "worker.ready",
-  "worker_id": "tuong-sicula"
+  "worker_id": "tuong-sicula",
+  "session_id": "uuid",
+  "heartbeat_interval_seconds": 20
 }
 ```
+
+## Heartbeat
+
+Workers send an application-level heartbeat because the UXP browser-style WebSocket API does not expose raw ping/pong frames.
+
+```json
+{
+  "type": "worker.heartbeat",
+  "worker_id": "tuong-sicula",
+  "current_job_id": null,
+  "busy": false
+}
+```
+
+Server response:
+
+```json
+{
+  "type": "worker.heartbeat_ack",
+  "server_time": "2026-06-01T00:00:00+00:00"
+}
+```
+
+If the server does not see any worker message for the stale timeout, it marks that worker stale/offline and fails any active job assigned to it.
 
 ## Render Request
 
@@ -57,6 +83,15 @@ completed
 failed
 ```
 
+Worker statuses exposed by `/workers`:
+
+```text
+idle
+busy
+offline
+stale
+```
+
 ## Completion
 
 ```json
@@ -76,4 +111,3 @@ failed
   "error": "Upload failed with HTTP 403"
 }
 ```
-

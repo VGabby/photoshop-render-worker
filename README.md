@@ -4,7 +4,7 @@ This repository is a small monorepo for a Photoshop-backed render worker.
 
 ## Folders
 
-- `photoshop_render_server/` - FastAPI orchestrator with in-memory jobs and WebSocket worker dispatch.
+- `photoshop_render_server/` - FastAPI orchestrator with SQLite-backed jobs, worker state, and WebSocket dispatch.
 - `photoshop_uxp_worker/` - Photoshop UXP plugin scaffold that connects as a worker and renders JPEGs.
 - `docs/` - protocol notes and git workflow.
 
@@ -19,6 +19,8 @@ Plugin saves rendered JPEG with saveAs.jpg(... quality: 12 ...)
 Plugin uploads to output_upload_url
 FastAPI marks job completed
 ```
+
+Workers reconnect automatically after network/server failures. They keep a stable `worker_id`, send application-level heartbeats, and the server marks stale/offline workers when heartbeats stop.
 
 ## Output Naming
 
