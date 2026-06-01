@@ -1,0 +1,13 @@
+{
+  "name": "photoshop-worker-connection-simulator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Headless worker-side WebSocket simulator for Photoshop render worker connections.",
+  "scripts": {
+    "start": "node connection_simulator.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

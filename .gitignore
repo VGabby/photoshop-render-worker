@@ -1,4 +1,5 @@
 node_modules/
+photoshop_uxp_worker/simulator/node_modules/
 dist/
 .playwright-mcp/
 tiny-sprout-*.png

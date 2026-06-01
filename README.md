@@ -1,42 +1,25 @@
-# Photoshop Camera Raw Render Worker
+# Photoshop Render Worker
 
-This repository is a small monorepo for a Photoshop-backed render worker.
+Monorepo for using Photoshop as a render worker behind a FastAPI orchestration server.
 
-## Folders
+## Design
 
-- `photoshop_render_server/` - FastAPI orchestrator with SQLite-backed jobs, worker state, and WebSocket dispatch.
-- `photoshop_uxp_worker/` - Photoshop UXP plugin scaffold that connects as a worker and renders JPEGs.
-- `docs/` - protocol notes and git workflow.
+- **FastAPI is the control plane.** It owns job creation, worker state, dispatch, and status APIs.
+- **Photoshop UXP is the worker.** It connects outbound over WebSocket, downloads JPEG input, lets Photoshop render embedded Camera Raw settings, then uploads the JPEG output.
+- **Storage is URL-based.** The server stores paths/URLs and job metadata, not image bytes, except for local development uploads.
+- **Workers are long-lived and reconnecting.** Each worker keeps a stable `worker_id`, sends heartbeats, and reconnects with backoff after network/server failures.
+- **SQLite is the local durable state.** Jobs and worker records survive server restarts; runtime data stays under `photoshop_render_server/data/`.
+- **Simulator is worker-side.** `photoshop_uxp_worker/simulator/` can create many fake workers without Photoshop to test WebSocket stability from worker machines.
 
-## MVP Flow
-
-```text
-Client -> FastAPI POST /jobs { input_url }
-FastAPI -> Photoshop plugin over WebSocket
-Plugin downloads JPEG
-Plugin opens JPEG in Photoshop
-Plugin saves rendered JPEG with saveAs.jpg(... quality: 12 ...)
-Plugin uploads to output_upload_url
-FastAPI marks job completed
-```
-
-Workers reconnect automatically after network/server failures. They keep a stable `worker_id`, send application-level heartbeats, and the server marks stale/offline workers when heartbeats stop.
-
-## Output Naming
-
-The server generates:
+## Layout
 
 ```text
-{original_name}_{short_job_id}_processed.jpg
+photoshop_render_server/   FastAPI server, SQLite state, REST + WebSocket APIs
+photoshop_uxp_worker/      Photoshop UXP plugin and worker-side simulator
+docs/                      Protocol and commit notes
 ```
 
-Example:
-
-```text
-photo-001_550e8400_processed.jpg
-```
-
-## Start Server
+## Run Server
 
 ```bash
 cd photoshop_render_server
@@ -47,26 +30,28 @@ cp .env.example .env
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Then load `photoshop_uxp_worker/` with Adobe UXP Developer Tool and connect to:
+Worker WebSocket URL:
 
 ```text
 ws://127.0.0.1:8000/workers/ws
 ```
 
-For same-machine testing with a local JPEG:
+## Test Without Photoshop
 
 ```bash
-curl -X POST http://127.0.0.1:8000/jobs/upload \
-  -F 'file=@/Users/bachhoang/Downloads/test_acr.jpeg'
+cd photoshop_uxp_worker/simulator
+npm install
+node connection_simulator.js --server ws://127.0.0.1:8000/workers/ws --count 5
 ```
 
-## Git
+## Useful APIs
 
-This repo is set up so the Photoshop worker monorepo can be committed without runtime files:
-
-```bash
-git add .
-git status
+```text
+POST /jobs          Create job from input_url
+POST /jobs/upload   Dev-only local JPEG upload
+GET  /jobs/{id}     Check job status
+GET  /workers       Check worker state
+WS   /workers/ws    Worker connection endpoint
 ```
 
-See `docs/commit-guide.md` before the first commit.
+See `docs/protocol.md` for message shapes.

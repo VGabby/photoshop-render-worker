@@ -18,6 +18,41 @@ ws://127.0.0.1:8000/workers/ws
 
 6. Click Connect.
 
+## Connection Simulator
+
+Use the simulator to test worker-server communication from a worker machine without opening Photoshop.
+
+```bash
+cd photoshop_uxp_worker/simulator
+npm install
+node connection_simulator.js \
+  --server ws://127.0.0.1:8000/workers/ws \
+  --count 5
+```
+
+Worker IDs include the local hostname to avoid collisions across machines:
+
+```text
+{hostname}-{prefix}-{index}
+```
+
+Example:
+
+```text
+mac-mini-office-sim-worker-001
+```
+
+For multi-machine tests, set a clear prefix:
+
+```bash
+node connection_simulator.js \
+  --server wss://your-server/workers/ws \
+  --count 10 \
+  --prefix office-mac
+```
+
+The simulator only validates connection stability. If it receives a render job, it reports `job.failed` with `Connection simulator cannot render Photoshop jobs`.
+
 ## MVP Assumptions
 
 - Photoshop is already open.
@@ -25,4 +60,3 @@ ws://127.0.0.1:8000/workers/ws
 - JPEGs contain embedded Camera Raw settings.
 - Photoshop renders those settings when the plugin opens the image and calls `document.saveAs.jpg(...)`.
 - `output_upload_url` accepts HTTP `PUT` with `image/jpeg`.
-
